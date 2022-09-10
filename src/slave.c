@@ -1,35 +1,65 @@
+#define _BSD_SOURCE
+#define _POSIX_C_SOURCE
+
 #include <stdio.h>
-#include <string.h>
 #include <unistd.h>
-#define BUFFER      512
-#define LOAD_FACTOR 2
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <string.h>
+#include <stdlib.h>
 
-int main(int argc, char *argv[]) {
+#define BUFFER 512
 
-    if (fork() == 0) {
-        argv[0] = "md5sum";
-        execv("/bin/md5sum", argv);
-    }
+#define MD5_CMD "md5sum "
+#define CMD_SIZE 10
+#define RD_ONLY "r"
 
-    while (1) {
-        char path[BUFFER];
-        int num_bytes = read(0, path, BUFFER * LOAD_FACTOR);
-        path[num_bytes] = '\0';
+#define ERROR_CODE -1
 
-        if (fork() == 0) {
-            execl("/bin/md5sum", "md5sum", path, (char *)NULL);
+char * output_buffer=NULL;
+
+void exit_program(int exit_status);
+
+int main(void)
+{   
+
+    while(1){
+        
+        char input_buffer[BUFFER];
+        input_buffer[0]='\0';
+        size_t line_buffer = BUFFER;
+        char command[BUFFER + CMD_SIZE] = MD5_CMD;
+    
+        FILE * md5_fd;
+        if (scanf("%s", input_buffer) == EOF){
+            exit_program(EXIT_FAILURE);
+        }
+        else{
+            perror(input_buffer);
+        }
+
+        strcpy(command, MD5_CMD);
+        strcat(command, input_buffer);
+
+        if ( (md5_fd = popen(command, RD_ONLY)) == NULL){
+            perror("popen");
+            exit_program(EXIT_FAILURE);
+        }
+        while (getline((char **)&output_buffer, &line_buffer , md5_fd) != EOF){
+            printf("process pid: %d | %s", getpid(), output_buffer);
+        }
+        fflush(stdout);
+
+        if (pclose(md5_fd) == ERROR_CODE){
+            exit_program(EXIT_FAILURE);
         }
     }
-
-    return 0;
+    exit_program(EXIT_SUCCESS);
 }
 
-/*
- printf("slave: ");
-    for (size_t i = 0; i < argc; i++) {
-
-        printf("%s ", argv[i]);
+void exit_program(int exit_status){
+    if (output_buffer != NULL){
+        free(output_buffer);
     }
-    printf("\n");
-
- */
+    _exit(exit_status);
+}
