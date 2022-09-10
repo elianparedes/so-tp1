@@ -4,7 +4,7 @@ EXECUTABLES = app slave view
 OBJECTS = $(EXECUTABLES:=.o)
 EXE_DIR = ./bin
 all: $(EXECUTABLES)
-	mkdir $(EXE_DIR) ; sudo mv -t $(EXE_DIR) $(EXECUTABLES)
+	mkdir -p $(EXE_DIR) ; mv -t $(EXE_DIR) $(EXECUTABLES)
 
 app : app.o
 	$(GCC) -o $@ $< -lrt
@@ -19,6 +19,6 @@ slave: slave.o
 	$(GCC) $(GCCFLAGS) -c $< -o $@
 
 clean:
-	sudo rm -r $(EXE_DIR) $(OBJECTS)
+	rm -r $(EXE_DIR) $(OBJECTS)
 
 .PHONY: all clean
