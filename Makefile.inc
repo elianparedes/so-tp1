@@ -1,5 +1,5 @@
 GCC=gcc
-GCCFLAGS=-Wall
+GCCFLAGS=-g -Wall -std=c99
 
 PVS=
 
