@@ -1,20 +1,20 @@
 include Makefile.inc
 
-APP = app
-OBJECTS = slave.o md5.o
+EXECUTABLES = app slave
+OBJECTS = $(EXECUTABLES:=.o)
 
-all: $(APP)
+all: $(EXECUTABLES)
 
-$(APP): $(OBJECTS) 
-	$(GCC) -o $(APP) $?
+app : app.o
+	$(GCC) -o $@ $< -lrt
 
-md5.o: md5.c
-	$(GCC) $(GCCFLAGS) -lrt -c $< -o $@
+slave: slave.o
+	$(GCC) -o $@ $<
 
-slave.o: slave.c
+%.o : src/%.c
 	$(GCC) $(GCCFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(APP) $(OBJECTS)
+	rm -f $(EXECUTABLES) $(OBJECTS)
 
 .PHONY: all clean
