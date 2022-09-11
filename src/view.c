@@ -36,8 +36,6 @@ int main(int argc, char const *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    char buffer[BUFFER_SIZE];
-
     int fd = shm_open(SHM_NAME, O_RDWR, 0);
     if (fd == -1)
         perror("shm_open parent");
