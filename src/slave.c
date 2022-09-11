@@ -1,3 +1,5 @@
+// This is a personal academic project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE
 
@@ -30,10 +32,14 @@ int main(void) {
         size_t line_buffer = BUFFER;
 
         int nbytes;
-        if ((nbytes = read(0, input_buffer, BUFFER)) == -1) {
-            exit_program(EXIT_FAILURE);
-        }
+        if ((nbytes = read(STDIN_FILENO, input_buffer, BUFFER - 1)) == -1) {
+            perror("slave | read");
 
+            if (output_buffer != NULL) {
+                free(output_buffer);
+            }
+            exit(EXIT_FAILURE);
+        }
         input_buffer[nbytes] = '\0';
 
         strcpy(command, MD5_CMD);
@@ -41,10 +47,14 @@ int main(void) {
 
         if ((md5_fd = popen(command, RD_ONLY)) == NULL) {
             perror("popen");
-            exit_program(EXIT_FAILURE);
+
+            if (output_buffer != NULL) {
+                free(output_buffer);
+            }
+            exit(EXIT_FAILURE);
         }
 
-        while (getline((char **)&output_buffer, &line_buffer, md5_fd) != EOF) {
+        while (getline(&output_buffer, &line_buffer, md5_fd) != EOF) {
             printf("process pid: %d | %s", getpid(), output_buffer);
         }
 
@@ -55,7 +65,7 @@ int main(void) {
         }
     }
 
-    exit_program(EXIT_SUCCESS);
+    exit(EXIT_SUCCESS);
 }
 
 void exit_program(int exit_status) {
@@ -63,5 +73,5 @@ void exit_program(int exit_status) {
         free(output_buffer);
     }
 
-    _exit(exit_status);
+    exit(exit_status);
 }

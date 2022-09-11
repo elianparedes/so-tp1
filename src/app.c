@@ -1,3 +1,5 @@
+// This is a personal academic project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 #define _DEFAULT_SOURCE
 
 #include <fcntl.h> /* For O_* constants */
@@ -26,13 +28,14 @@
 int main(int argc, char const *argv[]) {
     int master_to_slave[SLAVES][2];
     int slave_to_master[SLAVES][2];
+
     int files_in_hash = 1;
     int files_in_shm = 0;
 
     shm_unlink(SHM_NAME);
     sem_unlink(SEM_NAME);
 
-    sem_t *s1 = sem_open(SEM_NAME, O_CREAT, 0660, 1);
+    sem_t *s1 = sem_open(SEM_NAME, O_CREAT, 0660, 0);
     if (s1 == SEM_FAILED) {
         perror("app | sem_open");
         exit(EXIT_FAILURE);
@@ -71,8 +74,9 @@ int main(int argc, char const *argv[]) {
         char initial_load[BUFFER];
         initial_load[0] = '\0';
 
-        for (size_t j = 1; j <= LOAD_FACTOR; j++) {
-            strcat(initial_load, argv[files_in_hash++]);
+        for (size_t j = 1; j <= LOAD_FACTOR; j++, files_in_hash++) {
+            strncat(initial_load, argv[files_in_hash],
+                    BUFFER - strlen(argv[files_in_hash]) - 1);
             if (j < LOAD_FACTOR) {
                 strcat(initial_load, " ");
             }
@@ -106,19 +110,20 @@ int main(int argc, char const *argv[]) {
         for (int i = 0; i < SLAVES; i++) {
             if (FD_ISSET(slave_to_master[i][READ_END], &read_set_fds)) {
                 char hash[BUFFER];
-                int numBytes = read(slave_to_master[i][READ_END], hash, BUFFER);
-                hash[numBytes] = '\0';
+                int numBytes;
 
-                write(fd_shm, hash, numBytes);
-                files_in_shm++;
-
-                sem_post(s1);
+                if ((numBytes = read(slave_to_master[i][READ_END], hash,
+                                     BUFFER)) != -1) {
+                    write(fd_shm, hash, numBytes);
+                    files_in_shm++;
+                    sem_post(s1);
+                }
 
                 if (files_in_hash < argc) {
                     char input_buffer[BUFFER];
 
-                    strcpy(input_buffer, argv[files_in_hash++]);
-                    strcat(input_buffer, "\n");
+                    strncpy(input_buffer, argv[files_in_hash++], BUFFER);
+                    strcat(input_buffer, "\n"); // TODO: probar
 
                     if (write(master_to_slave[i][WRITE_END], input_buffer,
                               strlen(input_buffer) + 1) == ERROR_CODE) {
