@@ -1,20 +1,24 @@
 include Makefile.inc
 
-APP = app
-OBJECTS = slave.o md5.o
+EXECUTABLES = app slave view
+OBJECTS = $(EXECUTABLES:=.o)
+EXE_DIR = ./bin
+all: $(EXECUTABLES)
+	mkdir -p $(EXE_DIR) ; mv -t $(EXE_DIR) $(EXECUTABLES)
 
-all: $(APP)
+app : app.o
+	$(GCC) -o $@ $< -lrt
 
-$(APP): $(OBJECTS) 
-	$(GCC) -o $(APP) $?
+view : view.o
+	$(GCC) -o $@ $< -lrt -lpthread
 
-md5.o: md5.c
-	$(GCC) $(GCCFLAGS) -lrt -c $< -o $@
+slave: slave.o
+	$(GCC) -o $@ $<
 
-slave.o: slave.c
+%.o : src/%.c
 	$(GCC) $(GCCFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(APP) $(OBJECTS)
+	rm -r $(EXE_DIR) $(OBJECTS)
 
 .PHONY: all clean
