@@ -1,6 +1,7 @@
 #define _DEFAULT_SOURCE
 
 #include <fcntl.h> /* For O_* constants */
+#include <semaphore.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,31 +11,52 @@
 #include <sys/stat.h> /* For mode constants */
 #include <unistd.h>
 
-#define SLAVES      5
-#define SHM_NAME    "/buffer"
-#define SLAVE_NAME  "./slave"
-#define SHM_SIZE    2048
-#define BUFFER      512
-#define LOAD_FACTOR 2
-#define READ_END    0
-#define WRITE_END   1
-#define ERROR_CODE  -1
+#define SLAVES            5
+#define SHM_NAME          "/buffer"
+#define SLAVE_NAME        "./slave"
+#define SHM_SIZE          2048
+#define BUFFER            512
+#define LOAD_FACTOR       2
+#define READ_END          0
+#define WRITE_END         1
+#define ERROR_CODE        -1
+
+#define SEM_PRODUCER_NAME "/myproducer"
+#define SEM_CONSUMER_NAME "/myconsumer"
 
 int main(int argc, char const *argv[]) {
-
     int master_to_slave[SLAVES][2];
     int slave_to_master[SLAVES][2];
     int files_in_hash = 1;
     int files_in_shm = 0;
 
-    fd_set read_set_fds;
+    shm_unlink(SHM_NAME);
+    sem_unlink(SEM_PRODUCER_NAME);
+    sem_unlink(SEM_CONSUMER_NAME);
 
+    sem_t *s1 = sem_open(SEM_PRODUCER_NAME, O_CREAT, 0660, 1);
+    if (s1 == SEM_FAILED) {
+        perror("sem_open/producer");
+        exit(EXIT_FAILURE);
+    }
+
+    /*sem_t *s2 = sem_open(SEM_CONSUMER_NAME, O_CREAT, 0660, 1);
+    if (s2 == SEM_FAILED) {
+        perror("sem_open/consumer");
+        exit(EXIT_FAILURE);
+    }*/
+
+    fd_set read_set_fds;
     FD_ZERO(&read_set_fds);
 
     for (int i = 0; i < SLAVES; i++) {
         pipe(slave_to_master[i]);
         pipe(master_to_slave[i]);
     }
+
+    sleep(2);
+    printf("/buffer");
+    fflush(stdout);
 
     int fd_shm = shm_open(SHM_NAME, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd_shm == ERROR_CODE) {
@@ -95,8 +117,13 @@ int main(int argc, char const *argv[]) {
                 int numBytes = read(slave_to_master[i][READ_END], hash, BUFFER);
                 hash[numBytes] = '\0';
 
+                // sem_wait(s2);
+                sleep(1);
+
                 write(fd_shm, hash, numBytes);
                 files_in_shm++;
+
+                sem_post(s1);
 
                 if (files_in_hash < argc) {
                     char input_buffer[BUFFER];
@@ -112,6 +139,9 @@ int main(int argc, char const *argv[]) {
             }
         }
     }
+
+    // sem_close(s2);
+    sem_close(s1);
 
     return 0;
 }

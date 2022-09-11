@@ -21,27 +21,24 @@
 int main(int argc, char const *argv[]) {
 
     char shm_name[BUFFER_SIZE];
+    int readb = read(0, shm_name, BUFFER_SIZE);
+    shm_name[readb] = '\0';
 
-    scanf("%s", shm_name);
-
-    sem_unlink(SEM_PRODUCER_NAME);
-    sem_unlink(SEM_CONSUMER_NAME);
-
-    sem_t *sem_prod = sem_open(SEM_PRODUCER_NAME, O_CREAT, 0660, 1);
-    if (sem_prod == SEM_FAILED) {
+    sem_t *s1 = sem_open(SEM_PRODUCER_NAME, O_CREAT, 0660, 0);
+    if (s1 == SEM_FAILED) {
         perror("sem_open/producer");
         exit(EXIT_FAILURE);
     }
 
-    sem_t *sem_cons = sem_open(SEM_CONSUMER_NAME, O_CREAT, 0660, 1);
-    if (sem_cons == SEM_FAILED) {
+    sem_t *s2 = sem_open(SEM_CONSUMER_NAME, O_CREAT, 0660, 0);
+    if (s2 == SEM_FAILED) {
         perror("sem_open/consumer");
         exit(EXIT_FAILURE);
     }
 
     char buffer[BUFFER_SIZE];
 
-    int fd = shm_open(shm_name, O_RDWR, 0);
+    int fd = shm_open(SHM_NAME, O_RDWR, 0);
     if (fd == -1)
         perror("shm_open parent");
 
@@ -52,13 +49,14 @@ int main(int argc, char const *argv[]) {
         perror("mmap child");
 
     while (1) {
-        sem_wait(sem_prod);
-        printf("%s\n", addr_child);
-        sem_post(sem_cons);
+        sem_wait(s1);
+        printf("%s", addr_child);
+        addr_child += strlen(addr_child);
+        // sem_post(s2);
     }
 
-    sem_close(sem_cons);
-    sem_close(sem_prod);
+    sem_close(s2);
+    sem_close(s1);
 
     return 0;
 }
