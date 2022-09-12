@@ -12,6 +12,10 @@
 #include <sys/stat.h> /* For mode constants */
 #include <unistd.h>
 
+static int slaves;
+static int files_in_hash;
+static int total_files;
+
 /**
  * @brief programa que recibe nombres de archivos por parámetros y los hashea con el programa md5sum utilizando procesos hijos.
  * Guarda el resultado en una shared memory con el nombre SHM_NAME.
@@ -30,11 +34,13 @@ int main(int argc, char const *argv[])
         exit(EXIT_FAILURE);
     }
 
+    total_files = argc - 1;
+
     // La cantidad de esclavos a utilizar se define como el mínimo entre la variable SLAVES y la cantidad necesaria de esclavos para los archivos
     // pasados como parámetros, para poder optimizar la asignación de recursos.
-    int slaves = SLAVES * LOAD_FACTOR > argc - 1
-                     ? ceil((double)(argc - 1) / (double)LOAD_FACTOR)
-                     : SLAVES;
+    slaves = SLAVES * LOAD_FACTOR > total_files
+                 ? ceil((double)(total_files) / (double)LOAD_FACTOR)
+                 : SLAVES;
 
     // Pipes para los procesos. Uno para llevar información del master al slave, y dos para llevar información del slave
     // al master(salida estandar y error estandar)
@@ -42,7 +48,7 @@ int main(int argc, char const *argv[])
     int slave_to_master_stdout[slaves][2];
     int slave_to_master_stderr[slaves][2];
 
-    int files_in_hash = 1;
+    files_in_hash = 1;
     int files_in_shm = 0;
 
     shm_unlink(SHM_NAME);
@@ -57,16 +63,12 @@ int main(int argc, char const *argv[])
         exit(EXIT_FAILURE);
     }
 
-    for (int i = 0; i < slaves; i++)
-    {
-        if (pipe(master_to_slave[i]) == ERROR_CODE || pipe(slave_to_master_stdout[i]) == ERROR_CODE || pipe(slave_to_master_stderr[i]) == ERROR_CODE)
-        {
-            perror("app | pipe");
-            exit(EXIT_FAILURE);
-        }
-    }
+    // TODO: ERRORES
+    open_pipes(master_to_slave, slaves);
+    open_pipes(slave_to_master_stdout, slaves);
+    open_pipes(slave_to_master_stderr, slaves);
 
-    int fd_shm = open_shm(SHM_NAME, SHM_SIZE);
+    int fd_shm = open_shm(SHM_NAME, BUFFER);
     if (fd_shm == ERROR_CODE)
     {
         perror("app | open_shm ");
@@ -76,7 +78,7 @@ int main(int argc, char const *argv[])
     // Se esperan dos segundos para tener la oportunidad de conectar el programa view.c
     // Luego se imprime por salida estandar la información necesaria para conectar el programa app.c con el view.c
     sleep(2);
-    printf("%s %d", SHM_NAME, SHM_SIZE);
+    printf("%s %d", SHM_NAME, BUFFER);
     if (fflush(stdout) == EOF)
     {
         perror("app | fflush");
@@ -90,13 +92,8 @@ int main(int argc, char const *argv[])
 
     for (int i = 0; i < slaves; i++)
     {
-        strncpy(initial_load, argv[files_in_hash++], BUFFER - 1);
-
-        for (size_t j = 1; j < LOAD_FACTOR && files_in_hash < argc; j++)
-        {
-            strcat(initial_load, " ");
-            strncat(initial_load, argv[files_in_hash++], BUFFER - 1);
-        }
+        
+        copy_arguments(initial_load, argv);
 
         write(master_to_slave[i][WRITE_END], initial_load,
               strlen(initial_load) + 1);
@@ -104,26 +101,7 @@ int main(int argc, char const *argv[])
         int ret;
         if ((ret = fork()) == 0)
         {
-            close(STDIN_FILENO);
-            dup2(master_to_slave[i][READ_END], STDIN_FILENO);
-
-            close(STDOUT_FILENO);
-            dup2(slave_to_master_stdout[i][WRITE_END], STDOUT_FILENO);
-
-            close(STDERR_FILENO);
-            dup2(slave_to_master_stderr[i][WRITE_END], STDERR_FILENO);
-
-            close(master_to_slave[i][WRITE_END]);
-            close(slave_to_master_stdout[i][READ_END]);
-            close(slave_to_master_stderr[i][READ_END]);
-
-            if (execl(SLAVE_NAME, SLAVE_NAME, (char *)NULL) == ERROR_CODE)
-            {
-                close_pipes(master_to_slave, slaves);
-                close_pipes(slave_to_master_stdout, slaves);
-                close_pipes(slave_to_master_stderr, slaves);
-                exit(EXIT_FAILURE);
-            }
+            execute(master_to_slave, slave_to_master_stdout, slave_to_master_stderr, i);
         }
         else if (ret == ERROR_CODE)
         {
@@ -255,7 +233,7 @@ int main(int argc, char const *argv[])
         }
     }
 
-    // Se cierran todos los pipes utilizados. Al cerrar los pipes, los procesos recibirán un error en el read y liberarán sus recursos.
+    // Se cierran todos los pipes utilizados. Al cerrar los pipes, los procesos recibirán la terminación en el read y liberarán sus recursos.
     // No hay necesidad de hacer wait
     close_pipes(master_to_slave, slaves);
     close_pipes(slave_to_master_stdout, slaves);
@@ -281,13 +259,25 @@ int open_shm(char *name, off_t length)
     }
 
     void *addr_shm =
-        mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd_shm, 0);
+        mmap(NULL, BUFFER, PROT_READ | PROT_WRITE, MAP_SHARED, fd_shm, 0);
     if (addr_shm == MAP_FAILED)
     {
         return ERROR_CODE;
     }
 
     return fd_shm;
+}
+
+int open_pipes(int (*pipes)[2], int level)
+{
+    for (int i = 0; i < level; i++)
+    {
+        if (pipe(pipes[i]) == ERROR_CODE)
+        {
+            return ERROR_CODE;
+        }
+    }
+    return EXIT_SUCCESS;
 }
 
 void close_pipes(int (*pipes)[2], int slaves)
@@ -302,4 +292,41 @@ void close_pipe(int pipe[2])
 {
     close(pipe[READ_END]);
     close(pipe[WRITE_END]);
+}
+
+int copy_arguments(char *dest, const char **source)
+{
+    strncpy(dest, source[files_in_hash++], BUFFER - 1);
+
+    for (size_t j = 1; j < LOAD_FACTOR && files_in_hash < (total_files + 1); j++)
+    {
+        strcat(dest, " ");
+        strncat(dest, source[files_in_hash++], BUFFER - 1);
+    }
+
+    return EXIT_SUCCESS;
+}
+
+void execute(int (*master_to_slave)[2], int (*slave_to_master_stdout)[2], int (*slave_to_master_stderr)[2], int level)
+{
+    close(STDIN_FILENO);
+    dup2(master_to_slave[level][READ_END], STDIN_FILENO);
+
+    close(STDOUT_FILENO);
+    dup2(slave_to_master_stdout[level][WRITE_END], STDOUT_FILENO);
+
+    close(STDERR_FILENO);
+    dup2(slave_to_master_stderr[level][WRITE_END], STDERR_FILENO);
+
+    close(master_to_slave[level][WRITE_END]);
+    close(slave_to_master_stdout[level][READ_END]);
+    close(slave_to_master_stderr[level][READ_END]);
+
+    if (execl(SLAVE_NAME, SLAVE_NAME, (char *)NULL) == ERROR_CODE)
+    {
+        close_pipes(master_to_slave, slaves);
+        close_pipes(slave_to_master_stdout, slaves);
+        close_pipes(slave_to_master_stderr, slaves);
+        exit(EXIT_FAILURE);
+    }
 }

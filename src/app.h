@@ -33,6 +33,8 @@
  */
 int open_shm(char *name, off_t length);
 
+int open_pipes(int (*pipes)[2], int level);
+
 /**
  * @brief cierra los descriptores de archivos de escritura y lectura de un pipe
  * 
@@ -47,3 +49,7 @@ void close_pipe(int pipe[2]);
  * @param level hasta que fila de la matriz la función cerrará pipes
  */
 void close_pipes(int (*pipes)[2], int level);
+
+int copy_arguments(char * dest, const char ** source);
+
+void execute(int (*master_to_slave)[2], int (*slave_to_master_stdout)[2], int (*slave_to_master_stderr)[2], int level);
