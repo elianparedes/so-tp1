@@ -1,6 +1,5 @@
 // This is a personal academic project. Dear PVS-Studio, please check it.
 // PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
-#define _DEFAULT_SOURCE
 #include "app.h"
 
 #include <stdio.h>
@@ -192,9 +191,8 @@ int open_shm(char *name, off_t length) {
         return ERROR_CODE;
     }
 
-void close_pipe(int pipe[2]){
-    close(pipe[READ_END]);
-    close(pipe[WRITE_END]);
+    return fd_shm;
+
 }
 
 void close_pipes(int (*pipes)[2], int slaves){
