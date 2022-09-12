@@ -10,4 +10,9 @@
 
 #define ERROR_CODE  -1
 
+/**
+ * @brief función que libera los recursos alocados en memoria y termina el programa
+ * 
+ * @param exit_status estado de terminación.
+ */
 void exit_slave(int exit_status);

@@ -1,7 +1,5 @@
 // This is a personal academic project. Dear PVS-Studio, please check it.
 // PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
-#define _DEFAULT_SOURCE
-#define _POSIX_C_SOURCE
 #include "slave.h"
 
 #include <stdio.h>
@@ -13,6 +11,13 @@
 
 static char *output_buffer = NULL;
 
+/**
+ * @brief programa que espera por entrada estándar paths de archivos para hashear y luego imprime por salida estándar el pid del proceso
+ * junto al hash y el nombre del archivo.
+ * El programa espera archivos hasta que es interrumpido o hasta que hubo un error.
+ * 
+ * @return int EXIT_SUCCESS si no hubo errores. EXIT_FAILURE en caso contrario
+ */
 int main(void) {
 
     char command[BUFFER_SIZE + CMD_SIZE];

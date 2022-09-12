@@ -12,6 +12,16 @@
 #include <sys/stat.h> /* For mode constants */
 #include <unistd.h>
 
+/**
+ * @brief programa que recibe nombres de archivos por parámetros y los hashea con el programa md5sum utilizando procesos hijos.
+ * Guarda el resultado en una shared memory con el nombre SHM_NAME.
+ * Imprime por salida estándar el nombre de la shared memory y su tamaño en bytes.
+ * Imprime por error estándar un mensaje indicando el problema si hubiera alguno en la ejecución.
+ *
+ * @param argc cantidad de argumentos pasadas como parámetros
+ * @param argv paths de los archivos a hashear
+ * @return int EXIT_SUCCESS si el programa fue exitoso. EXIT_FAILURE en caso contrario
+ */
 int main(int argc, char const *argv[])
 {
     if (argc < 2)
@@ -20,10 +30,14 @@ int main(int argc, char const *argv[])
         exit(EXIT_FAILURE);
     }
 
+    // La cantidad de esclavos a utilizar se define como el mínimo entre la variable SLAVES y la cantidad necesaria de esclavos para los archivos
+    // pasados como parámetros, para poder optimizar la asignación de recursos.
     int slaves = SLAVES * LOAD_FACTOR > argc - 1
                      ? ceil((double)(argc - 1) / (double)LOAD_FACTOR)
                      : SLAVES;
 
+    // Pipes para los procesos. Uno para llevar información del master al slave, y dos para llevar información del slave
+    // al master(salida estandar y error estandar)
     int master_to_slave[slaves][2];
     int slave_to_master_stdout[slaves][2];
     int slave_to_master_stderr[slaves][2];
@@ -33,6 +47,8 @@ int main(int argc, char const *argv[])
 
     shm_unlink(SHM_NAME);
     sem_unlink(SEM_NAME);
+
+    // Se crea el semáforo para utilizarlo posteriormente.
 
     sem_t *sem = sem_open(SEM_NAME, O_CREAT, 0660, 0);
     if (sem == SEM_FAILED)
@@ -57,6 +73,8 @@ int main(int argc, char const *argv[])
         exit(EXIT_FAILURE);
     }
 
+    // Se esperan dos segundos para tener la oportunidad de conectar el programa view.c
+    // Luego se imprime por salida estandar la información necesaria para conectar el programa app.c con el view.c
     sleep(2);
     printf("%s %d", SHM_NAME, SHM_SIZE);
     if (fflush(stdout) == EOF)
@@ -64,6 +82,9 @@ int main(int argc, char const *argv[])
         perror("app | fflush");
         exit(EXIT_FAILURE);
     }
+
+    // Se crean los procesos hijos y se le transmite por los pipes la cantidad de argumentos inicial
+    // que tendran que procesar (initial_load)
 
     char initial_load[BUFFER * slaves + slaves];
 
@@ -113,6 +134,10 @@ int main(int argc, char const *argv[])
         }
     }
 
+    // Luego de crear los procesos hijos, el proceso ./app se queda esperando los resultados del hash mediante la función select.
+    // Cuando un proceso se libera, se le envia el próximo path a hashear.
+    // El proceso se quedará esperando hasta que todos los resultados hayan sido procesados (copiados a la memoria compartida o impreso
+    // en error estándar)
     size_t entries;
 
     if (slaves < SLAVES)
@@ -137,6 +162,7 @@ int main(int argc, char const *argv[])
     while (files_in_shm < entries)
     {
 
+        // Se prepara el struct de read_set_fds para el select
         for (int i = 0; i < slaves; i++)
         {
             if (slave_to_master_stdout[i][READ_END] != ERROR_CODE)
@@ -154,6 +180,7 @@ int main(int argc, char const *argv[])
 
         for (int i = 0; i < slaves; i++)
         {
+            // Recepción de hasheos exitosos de los procesos.
             if (FD_ISSET(slave_to_master_stdout[i][READ_END], &read_set_fds))
             {
                 char hash[BUFFER];
@@ -165,23 +192,33 @@ int main(int argc, char const *argv[])
                     write(fd_shm, hash, nbytes);
                     files_in_shm++;
                     sem_post(sem);
-                }
 
-                if (files_in_hash < argc)
-                {
-                    char input_buffer[BUFFER];
-
-                    strncpy(input_buffer, argv[files_in_hash++], BUFFER - 1);
-
-                    if (write(master_to_slave[i][WRITE_END], input_buffer,
-                              strlen(input_buffer) + 1) == ERROR_CODE)
+                    if (files_in_hash < argc)
                     {
-                        perror("app | write");
+                        char input_buffer[BUFFER];
+
+                        strncpy(input_buffer, argv[files_in_hash++], BUFFER - 1);
+
+                        if (write(master_to_slave[i][WRITE_END], input_buffer,
+                                  strlen(input_buffer) + 1) == ERROR_CODE)
+                        {
+                            perror("app | write");
+                        }
                     }
+                }
+                else
+                {
+                    close_pipe(slave_to_master_stderr[i]);
+                    close_pipe(slave_to_master_stdout[i]);
+                    FD_CLR(slave_to_master_stdout[i][READ_END], &read_set_fds);
+                    FD_CLR(slave_to_master_stderr[i][READ_END], &read_set_fds);
+                    slave_to_master_stdout[i][READ_END] = ERROR_CODE;
+                    slave_to_master_stderr[i][READ_END] = ERROR_CODE;
                 }
             }
 
-            // Handling of errors in slave processes
+            // Recepción de errores de los procesos. Si el error no está relacionado con
+            // el programa md5sum, se abortará el proceso y se cerrarán sus pipes, para no enviarle más archivos.
             if (FD_ISSET(slave_to_master_stderr[i][READ_END], &read_set_fds))
             {
                 files_in_shm++;
@@ -218,9 +255,12 @@ int main(int argc, char const *argv[])
         }
     }
 
+    // Se cierran todos los pipes utilizados. Al cerrar los pipes, los procesos recibirán un error en el read y liberarán sus recursos.
+    // No hay necesidad de hacer wait
     close_pipes(master_to_slave, slaves);
     close_pipes(slave_to_master_stdout, slaves);
     close_pipes(slave_to_master_stderr, slaves);
+
     sem_close(sem);
 
     return EXIT_SUCCESS;
