@@ -12,8 +12,10 @@
 #include <sys/stat.h> /* For mode constants */
 #include <unistd.h>
 
-int main(int argc, char const *argv[]) {
-    if (argc < 2) {
+int main(int argc, char const *argv[])
+{
+    if (argc < 2)
+    {
         fprintf(stderr, "%s", "app | missing arguments\n");
         exit(EXIT_FAILURE);
     }
@@ -32,34 +34,45 @@ int main(int argc, char const *argv[]) {
     shm_unlink(SHM_NAME);
     sem_unlink(SEM_NAME);
 
-    sem_t *s1 = sem_open(SEM_NAME, O_CREAT, 0660, 0);
-    if (s1 == SEM_FAILED) {
+    sem_t *sem = sem_open(SEM_NAME, O_CREAT, 0660, 0);
+    if (sem == SEM_FAILED)
+    {
         perror("app | sem_open");
         exit(EXIT_FAILURE);
     }
 
-    for (int i = 0; i < slaves; i++) {
-        pipe(master_to_slave[i]);
-        pipe(slave_to_master_stdout[i]);
-        pipe(slave_to_master_stderr[i]);
+    for (int i = 0; i < slaves; i++)
+    {
+        if (pipe(master_to_slave[i]) == ERROR_CODE || pipe(slave_to_master_stdout[i]) == ERROR_CODE || pipe(slave_to_master_stderr[i]) == ERROR_CODE)
+        {
+            perror("app | pipe");
+            exit(EXIT_FAILURE);
+        }
     }
 
     int fd_shm = open_shm(SHM_NAME, SHM_SIZE);
-    if (fd_shm == ERROR_CODE) {
+    if (fd_shm == ERROR_CODE)
+    {
         perror("app | open_shm ");
         exit(EXIT_FAILURE);
     }
 
     sleep(2);
     printf("%s %d", SHM_NAME, SHM_SIZE);
-    fflush(stdout);
+    if (fflush(stdout) == EOF)
+    {
+        perror("app | fflush");
+        exit(EXIT_FAILURE);
+    }
 
     char initial_load[BUFFER * slaves + slaves];
 
-    for (int i = 0; i < slaves; i++) {
+    for (int i = 0; i < slaves; i++)
+    {
         strncpy(initial_load, argv[files_in_hash++], BUFFER - 1);
 
-        for (size_t j = 1; j < LOAD_FACTOR && files_in_hash < argc; j++) {
+        for (size_t j = 1; j < LOAD_FACTOR && files_in_hash < argc; j++)
+        {
             strcat(initial_load, " ");
             strncat(initial_load, argv[files_in_hash++], BUFFER - 1);
         }
@@ -68,7 +81,8 @@ int main(int argc, char const *argv[]) {
               strlen(initial_load) + 1);
 
         int ret;
-        if ((ret = fork()) == 0) {
+        if ((ret = fork()) == 0)
+        {
             close(STDIN_FILENO);
             dup2(master_to_slave[i][READ_END], STDIN_FILENO);
 
@@ -82,8 +96,16 @@ int main(int argc, char const *argv[]) {
             close(slave_to_master_stdout[i][READ_END]);
             close(slave_to_master_stderr[i][READ_END]);
 
-            execl(SLAVE_NAME, SLAVE_NAME, (char *)NULL);
-        } else if (ret == ERROR_CODE) {
+            if (execl(SLAVE_NAME, SLAVE_NAME, (char *)NULL) == ERROR_CODE)
+            {
+                close_pipes(master_to_slave, slaves);
+                close_pipes(slave_to_master_stdout, slaves);
+                close_pipes(slave_to_master_stderr, slaves);
+                exit(EXIT_FAILURE);
+            }
+        }
+        else if (ret == ERROR_CODE)
+        {
             close_pipes(master_to_slave, slaves);
             close_pipes(slave_to_master_stdout, slaves);
             close_pipes(slave_to_master_stderr, slaves);
@@ -93,12 +115,18 @@ int main(int argc, char const *argv[]) {
 
     size_t entries;
 
-    if (slaves < SLAVES) {
+    if (slaves < SLAVES)
+    {
         entries = slaves;
-    } else {
-        if (argc - 1 < slaves * LOAD_FACTOR) {
+    }
+    else
+    {
+        if (argc - 1 < slaves * LOAD_FACTOR)
+        {
             entries = slaves + 1;
-        } else {
+        }
+        else
+        {
             entries = argc - slaves - 1;
         }
     }
@@ -106,93 +134,132 @@ int main(int argc, char const *argv[]) {
     fd_set read_set_fds;
     FD_ZERO(&read_set_fds);
 
-    while (files_in_shm < entries) {
+    while (files_in_shm < entries)
+    {
 
-        for (int i = 0; i < slaves; i++) {
-            FD_SET(slave_to_master_stdout[i][READ_END], &read_set_fds);
-            FD_SET(slave_to_master_stderr[i][READ_END], &read_set_fds);
+        for (int i = 0; i < slaves; i++)
+        {
+            if (slave_to_master_stdout[i][READ_END] != ERROR_CODE)
+            {
+                FD_SET(slave_to_master_stdout[i][READ_END], &read_set_fds);
+                FD_SET(slave_to_master_stderr[i][READ_END], &read_set_fds);
+            }
         }
 
-        if (select(FD_SETSIZE, &read_set_fds, NULL, NULL, NULL) < 0) {
+        if (select(FD_SETSIZE, &read_set_fds, NULL, NULL, NULL) < 0)
+        {
             perror("app | select");
             exit(EXIT_FAILURE);
         }
 
-        for (int i = 0; i < slaves; i++) {
-            if (FD_ISSET(slave_to_master_stdout[i][READ_END], &read_set_fds)) {
+        for (int i = 0; i < slaves; i++)
+        {
+            if (FD_ISSET(slave_to_master_stdout[i][READ_END], &read_set_fds))
+            {
                 char hash[BUFFER];
                 ssize_t nbytes;
 
                 if ((nbytes = read(slave_to_master_stdout[i][READ_END], hash,
-                                  BUFFER)) != -1) {
+                                   BUFFER)) != ERROR_CODE)
+                {
                     write(fd_shm, hash, nbytes);
                     files_in_shm++;
-                    sem_post(s1);
+                    sem_post(sem);
                 }
 
-                if (files_in_hash < argc) {
+                if (files_in_hash < argc)
+                {
                     char input_buffer[BUFFER];
 
                     strncpy(input_buffer, argv[files_in_hash++], BUFFER - 1);
 
                     if (write(master_to_slave[i][WRITE_END], input_buffer,
-                              strlen(input_buffer) + 1) == ERROR_CODE) {
+                              strlen(input_buffer) + 1) == ERROR_CODE)
+                    {
                         perror("app | write");
                     }
                 }
             }
 
             // Handling of errors in slave processes
-            if (FD_ISSET(slave_to_master_stderr[i][READ_END], &read_set_fds)) {
-
+            if (FD_ISSET(slave_to_master_stderr[i][READ_END], &read_set_fds))
+            {
                 files_in_shm++;
 
                 char error[BUFFER];
                 ssize_t nbytes = read(slave_to_master_stderr[i][READ_END], error,
-                                     BUFFER - 1);
-                error[nbytes] = '\0';
-                fprintf(stderr, "%s", error);
-
-                if (strstr(error, MD5_CMD) == NULL) {
+                                      BUFFER - 1);
+                if (nbytes == ERROR_CODE)
+                {
+                    perror("app | read stderr");
                     close_pipe(slave_to_master_stderr[i]);
                     close_pipe(slave_to_master_stdout[i]);
+                    FD_CLR(slave_to_master_stdout[i][READ_END], &read_set_fds);
+                    FD_CLR(slave_to_master_stderr[i][READ_END], &read_set_fds);
+                    slave_to_master_stdout[i][READ_END] = ERROR_CODE;
+                    slave_to_master_stderr[i][READ_END] = ERROR_CODE;
+                }
+                else
+                {
+                    error[nbytes] = '\0';
+                    fprintf(stderr, "%s", error);
+
+                    if (strstr(error, MD5_CMD) == NULL)
+                    {
+                        close_pipe(slave_to_master_stderr[i]);
+                        close_pipe(slave_to_master_stdout[i]);
+                        FD_CLR(slave_to_master_stdout[i][READ_END], &read_set_fds);
+                        FD_CLR(slave_to_master_stderr[i][READ_END], &read_set_fds);
+                        slave_to_master_stdout[i][READ_END] = ERROR_CODE;
+                        slave_to_master_stderr[i][READ_END] = ERROR_CODE;
+                    }
                 }
             }
         }
     }
 
-    sem_close(s1);
+    close_pipes(master_to_slave, slaves);
+    close_pipes(slave_to_master_stdout, slaves);
+    close_pipes(slave_to_master_stderr, slaves);
+    sem_close(sem);
 
-    return 0;
+    return EXIT_SUCCESS;
 }
 
-int open_shm(char *name, off_t length) {
+int open_shm(char *name, off_t length)
+{
     int fd_shm = shm_open(SHM_NAME, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
 
-    if (fd_shm == ERROR_CODE) {
+    if (fd_shm == ERROR_CODE)
+    {
         return ERROR_CODE;
     }
 
-    if (ftruncate(fd_shm, length) == ERROR_CODE) {
+    if (ftruncate(fd_shm, length) == ERROR_CODE)
+    {
         return ERROR_CODE;
     }
 
-    void *addr_parent =
+    void *addr_shm =
         mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd_shm, 0);
-    if (addr_parent == MAP_FAILED) {
+    if (addr_shm == MAP_FAILED)
+    {
         return ERROR_CODE;
     }
 
     return fd_shm;
 }
 
-void close_pipes(int (*pipes)[2], int slaves) {
-    for (int i = 0; i < slaves; i++) {
+void close_pipes(int (*pipes)[2], int slaves)
+{
+    for (int i = 0; i < slaves; i++)
+    {
         close_pipe(pipes[i]);
     }
 }
 
-void close_pipe(int pipe[2]) {
+void close_pipe(int pipe[2])
+{
     close(pipe[READ_END]);
     close(pipe[WRITE_END]);
 }
