@@ -9,7 +9,7 @@ all: $(EXECUTABLES)
 	@mkdir -p $(EXE_DIR) ; mv -t $(EXE_DIR) $(EXECUTABLES)
 
 app : app.o
-	@$(GCC) -o $@ $< -lrt -lpthread ; mv -t $(SRC_DIR) $<
+	@$(GCC) -o $@ $< -lrt -lpthread -lm; mv -t $(SRC_DIR) $<
 
 view : view.o
 	@$(GCC) -o $@ $< -lrt -lpthread ; mv -t $(SRC_DIR) $<
