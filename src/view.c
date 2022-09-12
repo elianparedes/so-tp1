@@ -1,3 +1,5 @@
+// This is a personal academic project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 #define _DEFAULT_SOURCE
 
 #include <fcntl.h> /* For O_* constants */
@@ -20,7 +22,12 @@
 int main(int argc, char const *argv[]) {
 
     char shm_name[BUFFER_SIZE];
-    int readb = read(0, shm_name, BUFFER_SIZE);
+
+    int readb;
+    if ((readb = read(STDIN_FILENO, shm_name, BUFFER_SIZE - 1)) == -1) {
+        perror("view | read");
+        exit(EXIT_FAILURE);
+    }
     shm_name[readb] = '\0';
 
     sem_t *s1 = sem_open(SEM_NAME, O_CREAT, 0660, 0);
@@ -29,7 +36,7 @@ int main(int argc, char const *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    int fd = shm_open(SHM_NAME, O_RDWR, 0);
+    int fd = shm_open(shm_name, O_RDWR, 0);
     if (fd == -1)
         perror("view | shm_open");
 
@@ -41,8 +48,10 @@ int main(int argc, char const *argv[]) {
 
     while (1) {
         sem_wait(s1);
-        printf("%s", shm_buffer);
-        shm_buffer += strlen(shm_buffer);
+
+        int shm_buffer_size = strlen(shm_buffer);
+        write(STDOUT_FILENO, shm_buffer, shm_buffer_size);
+        shm_buffer += shm_buffer_size;
     }
 
     sem_close(s1);

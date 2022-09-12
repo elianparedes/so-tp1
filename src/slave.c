@@ -1,3 +1,7 @@
+// This is a personal academic project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+#define _DEFAULT_SOURCE
+#define _POSIX_C_SOURCE
 #include "slave.h"
 
 #include <stdio.h>
@@ -20,26 +24,34 @@ int main(void) {
     int nbytes;
 
     while (1) {
+        if ((nbytes = read(STDIN_FILENO, input_buffer, BUFFER_SIZE)) ==
+            ERROR_CODE) {
+            perror("slave | read");
+            if (output_buffer != NULL) {
+                free(output_buffer);
+            }
 
-        if ((nbytes = read(STDIN_FILENO, input_buffer, BUFFER_SIZE)) == ERROR_CODE) {
-            exit_slave(EXIT_FAILURE);
+            exit(EXIT_FAILURE);
         }
-
         input_buffer[nbytes] = '\0';
 
         strcpy(command, MD5_CMD);
         strcat(command, input_buffer);
 
         if ((md5_fd = popen(command, RD_ONLY)) == NULL) {
-            perror("slave | popen");
-            exit_slave(EXIT_FAILURE);
+            perror("popen");
+
+            if (output_buffer != NULL) {
+                free(output_buffer);
+            }
+            exit(EXIT_FAILURE);
         }
 
         while (getline(&output_buffer, &line_buffer, md5_fd) != EOF) {
             printf("process pid: %d | %s", getpid(), output_buffer);
         }
 
-        if (fflush(stdout) == EOF){
+        if (fflush(stdout) == EOF) {
             perror("slave | fflush");
             exit_slave(EXIT_FAILURE);
         }

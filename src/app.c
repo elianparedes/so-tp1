@@ -1,23 +1,30 @@
+// This is a personal academic project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+#define _DEFAULT_SOURCE
 #include "app.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h> /* For O_* constants */
+#include <math.h>
 #include <semaphore.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/select.h>
 #include <sys/stat.h> /* For mode constants */
 #include <math.h>
 
-int main(int argc, char const *argv[])
-{
-    if (argc < 2){
+int main(int argc, char const *argv[]) {
+    if (argc < 2) {
         fprintf(stderr, "%s", "app | missing arguments\n");
         exit(EXIT_FAILURE);
     }
 
-    int slaves= SLAVES*LOAD_FACTOR > argc - 1? ceil((double)(argc-1)/(double)LOAD_FACTOR): SLAVES;
+    int slaves = SLAVES * LOAD_FACTOR > argc - 1
+                     ? ceil((double)(argc - 1) / (double)LOAD_FACTOR)
+                     : SLAVES;
 
     int master_to_slave[slaves][2];
     int slave_to_master_stdout[slaves][2];
@@ -29,21 +36,19 @@ int main(int argc, char const *argv[])
     shm_unlink(SHM_NAME);
     sem_unlink(SEM_NAME);
 
-    sem_t *s1 = sem_open(SEM_NAME, O_CREAT, 0660, 1);
-    if (s1 == SEM_FAILED)
-    {
+    sem_t *s1 = sem_open(SEM_NAME, O_CREAT, 0660, 0);
+    if (s1 == SEM_FAILED) {
         perror("app | sem_open");
         exit(EXIT_FAILURE);
     }
 
 
-    for (int i = 0; i < slaves; i++)
-    {
+    for (int i = 0; i < slaves; i++) {
         pipe(master_to_slave[i]);
         pipe(slave_to_master_stdout[i]);
         pipe(slave_to_master_stderr[i]);
     }
-    
+
     int fd_shm = open_shm(SHM_NAME, SHM_SIZE);
     if (fd_shm == ERROR_CODE){
         perror("app | open_shm ");
@@ -54,16 +59,14 @@ int main(int argc, char const *argv[])
     printf(SHM_NAME);
     fflush(stdout);
 
-    char initial_load[BUFFER*slaves+ slaves];
+    char initial_load[BUFFER * slaves + slaves];
 
-    for (int i = 0; i < slaves; i++)
-    {
-        strncpy(initial_load, argv[files_in_hash++], BUFFER-1);
+    for (int i = 0; i < slaves; i++) {
+        strncpy(initial_load, argv[files_in_hash++], BUFFER - 1);
 
-        for (size_t j = 2; j <= LOAD_FACTOR && files_in_hash < argc; j++)
-        {
+        for (size_t j = 2; j <= LOAD_FACTOR && files_in_hash < argc; j++) {
             strcat(initial_load, " ");
-            strncat(initial_load, argv[files_in_hash++], BUFFER-1);
+            strncat(initial_load, argv[files_in_hash++], BUFFER - 1);
         }
 
         write(master_to_slave[i][WRITE_END], initial_load, strlen(initial_load) + 1);
@@ -96,15 +99,13 @@ int main(int argc, char const *argv[])
 
     size_t entries;
 
-    if (slaves < SLAVES){
-        entries= slaves;
-    }
-    else{
-        if ( argc-1  < slaves*LOAD_FACTOR){
-            entries= slaves+1;
-        }
-        else{
-            entries=argc-slaves-1;
+    if (slaves < SLAVES) {
+        entries = slaves;
+    } else {
+        if (argc - 1 < slaves * LOAD_FACTOR) {
+            entries = slaves + 1;
+        } else {
+            entries = argc - slaves - 1;
         }
     }
 
@@ -120,34 +121,30 @@ int main(int argc, char const *argv[])
             FD_SET(slave_to_master_stderr[i][READ_END], &read_set_fds);
         }
 
-        if (select(FD_SETSIZE, &read_set_fds, NULL, NULL, NULL) < 0)
-        {
+        if (select(FD_SETSIZE, &read_set_fds, NULL, NULL, NULL) < 0) {
             perror("app | select");
             exit(EXIT_FAILURE);
         }
 
-        for (int i = 0; i < slaves; i++)
-        {
-            if (FD_ISSET(slave_to_master_stdout[i][READ_END], &read_set_fds))
-            {
+        for (int i = 0; i < slaves; i++) {
+            if (FD_ISSET(slave_to_master_stdout[i][READ_END], &read_set_fds)) {
                 char hash[BUFFER];
-                int numBytes = read(slave_to_master_stdout[i][READ_END], hash, BUFFER - 1);
-                hash[numBytes] = '\0';
+                int numBytes;
 
-                write(fd_shm, hash, numBytes);
-                files_in_shm++;
+                if ((numBytes = read(slave_to_master_stdout[i][READ_END], hash,
+                                     BUFFER)) != -1) {
+                    write(fd_shm, hash, numBytes);
+                    files_in_shm++;
+                    sem_post(s1);
+                }
 
-                sem_post(s1);
-
-                if (files_in_hash < argc)
-                {
+                if (files_in_hash < argc) {
                     char input_buffer[BUFFER];
 
-                    strncpy(input_buffer, argv[files_in_hash++], BUFFER -1);
+                    strncpy(input_buffer, argv[files_in_hash++], BUFFER - 1);
 
                     if (write(master_to_slave[i][WRITE_END], input_buffer,
-                              strlen(input_buffer) + 1) == ERROR_CODE)
-                    {
+                              strlen(input_buffer) + 1) == ERROR_CODE) {
                         perror("app | write");
                     }
                 }
@@ -176,8 +173,7 @@ int main(int argc, char const *argv[])
     return 0;
 }
 
-int open_shm(char *name, off_t length)
-{
+int open_shm(char *name, off_t length) {
     int fd_shm = shm_open(SHM_NAME, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
 
     if (fd_shm == ERROR_CODE)
@@ -196,7 +192,9 @@ int open_shm(char *name, off_t length)
         return ERROR_CODE;
     }
 
-    return fd_shm;
+void close_pipe(int pipe[2]){
+    close(pipe[READ_END]);
+    close(pipe[WRITE_END]);
 }
 
 void close_pipes(int (*pipes)[2], int slaves){
