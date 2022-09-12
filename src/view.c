@@ -13,25 +13,21 @@
 #include <sys/stat.h> /* For mode constants */
 #include <unistd.h>
 
-#define SHM_NAME    "/buffer"
-#define SHM_SIZE    1024
 #define BUFFER_SIZE 512
-
 #define SEM_NAME    "/sem"
 
 int main(int argc, char const *argv[]) {
 
     char shm_name[BUFFER_SIZE];
+    int shm_size;
 
-    int readb;
-    if ((readb = read(STDIN_FILENO, shm_name, BUFFER_SIZE - 1)) == -1) {
-        perror("view | read");
+    if (fscanf(stdin, "%s %d", shm_name, &shm_size) == EOF) {
+        perror("view | fscanf");
         exit(EXIT_FAILURE);
     }
-    shm_name[readb] = '\0';
 
-    sem_t *s1 = sem_open(SEM_NAME, O_CREAT, 0660, 0);
-    if (s1 == SEM_FAILED) {
+    sem_t *sem = sem_open(SEM_NAME, O_CREAT, 0660, 0);
+    if (sem == SEM_FAILED) {
         perror("view | sem_open");
         exit(EXIT_FAILURE);
     }
@@ -41,20 +37,20 @@ int main(int argc, char const *argv[]) {
         perror("view | shm_open");
 
     char *shm_buffer =
-        mmap(NULL, SHM_SIZE, PROT_WRITE | PROT_READ, MAP_SHARED, fd, 0);
+        mmap(NULL, shm_size, PROT_WRITE | PROT_READ, MAP_SHARED, fd, 0);
 
     if (shm_buffer == MAP_FAILED)
         perror("view | mmap");
 
     while (1) {
-        sem_wait(s1);
+        sem_wait(sem);
 
         int shm_buffer_size = strlen(shm_buffer);
         write(STDOUT_FILENO, shm_buffer, shm_buffer_size);
         shm_buffer += shm_buffer_size;
     }
 
-    sem_close(s1);
+    sem_close(sem);
 
     return 0;
 }
