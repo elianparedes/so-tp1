@@ -1,8 +1,10 @@
 // This is a personal academic project. Dear PVS-Studio, please check it.
 // PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
-#define _DEFAULT_SOURCE
 #include "app.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 #include <fcntl.h> /* For O_* constants */
 #include <math.h>
 #include <semaphore.h>
@@ -11,11 +13,12 @@
 #include <string.h>
 #include <sys/select.h>
 #include <sys/stat.h> /* For mode constants */
-#include <unistd.h>
+#include <math.h>
 
 int main(int argc, char const *argv[]) {
     if (argc < 2) {
         fprintf(stderr, "%s", "app | missing arguments\n");
+        exit(EXIT_FAILURE);
     }
 
     int slaves = SLAVES * LOAD_FACTOR > argc - 1
@@ -29,8 +32,6 @@ int main(int argc, char const *argv[]) {
     int files_in_hash = 1;
     int files_in_shm = 0;
 
-    fd_set read_set_fds;
-
     shm_unlink(SHM_NAME);
     sem_unlink(SEM_NAME);
 
@@ -40,7 +41,6 @@ int main(int argc, char const *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    FD_ZERO(&read_set_fds);
 
     for (int i = 0; i < slaves; i++) {
         pipe(master_to_slave[i]);
@@ -49,7 +49,11 @@ int main(int argc, char const *argv[]) {
     }
 
     int fd_shm = open_shm(SHM_NAME, SHM_SIZE);
-
+    if (fd_shm == ERROR_CODE){
+        perror("app | open_shm ");
+        exit(EXIT_FAILURE);
+    }
+    
     sleep(2);
     printf(SHM_NAME);
     fflush(stdout);
@@ -64,20 +68,31 @@ int main(int argc, char const *argv[]) {
             strncat(initial_load, argv[files_in_hash++], BUFFER - 1);
         }
 
-        write(master_to_slave[i][WRITE_END], initial_load,
-              strlen(initial_load) + 1);
-
-        if (fork() == 0) {
+        write(master_to_slave[i][WRITE_END], initial_load, strlen(initial_load) + 1);
+        
+        int ret;
+        if ( (ret=fork()) == 0)
+        {
             close(STDIN_FILENO);
             dup2(master_to_slave[i][READ_END], STDIN_FILENO);
 
             close(STDOUT_FILENO);
             dup2(slave_to_master_stdout[i][WRITE_END], STDOUT_FILENO);
 
+            close(STDERR_FILENO);
+            dup2(slave_to_master_stderr[i][WRITE_END], STDERR_FILENO);
+
             close(master_to_slave[i][WRITE_END]);
             close(slave_to_master_stdout[i][READ_END]);
+            close(slave_to_master_stderr[i][READ_END]);
 
             execl(SLAVE_NAME, SLAVE_NAME, (char *)NULL);
+        }
+        else if (ret == ERROR_CODE){
+            close_pipes(master_to_slave, slaves);
+            close_pipes(slave_to_master_stdout, slaves);
+            close_pipes(slave_to_master_stderr, slaves);
+            exit(EXIT_FAILURE);
         }
     }
 
@@ -93,14 +108,21 @@ int main(int argc, char const *argv[]) {
         }
     }
 
-    while (files_in_shm < entries) {
-        for (int i = 0; i < slaves; i++) {
+    fd_set read_set_fds;
+    FD_ZERO(&read_set_fds);
+
+    while (files_in_shm < entries)
+    {
+
+        for (int i = 0; i < slaves; i++)
+        {
             FD_SET(slave_to_master_stdout[i][READ_END], &read_set_fds);
+            FD_SET(slave_to_master_stderr[i][READ_END], &read_set_fds);
         }
 
         if (select(FD_SETSIZE, &read_set_fds, NULL, NULL, NULL) < 0) {
             perror("app | select");
-            _exit(EXIT_FAILURE);
+            exit(EXIT_FAILURE);
         }
 
         for (int i = 0; i < slaves; i++) {
@@ -126,6 +148,22 @@ int main(int argc, char const *argv[]) {
                     }
                 }
             }
+
+            // Handling of errors in slave processes
+            if (FD_ISSET(slave_to_master_stderr[i][READ_END], &read_set_fds)){
+
+                files_in_shm++;
+
+                char error[BUFFER];
+                int numBytes = read(slave_to_master_stderr[i][READ_END], error, BUFFER - 1);
+                error[numBytes] = '\0';
+                fprintf(stderr, "%s", error);
+
+                if (strstr(error, MD5_CMD) == NULL){
+                    close_pipe(slave_to_master_stderr[i]);
+                    close_pipe(slave_to_master_stdout[i]);
+                }
+            }
         }
     }
 
@@ -137,21 +175,33 @@ int main(int argc, char const *argv[]) {
 int open_shm(char *name, off_t length) {
     int fd_shm = shm_open(SHM_NAME, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
 
-    if (fd_shm == ERROR_CODE) {
-        perror("app | shm_open");
-        exit(EXIT_FAILURE);
-    }
-    if (ftruncate(fd_shm, length) == ERROR_CODE) {
-        perror("app | ftruncate");
-        exit(EXIT_FAILURE);
+    if (fd_shm == ERROR_CODE)
+    {
+        return ERROR_CODE;
     }
 
-    void *addr_parent =
-        mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd_shm, 0);
-    if (addr_parent == MAP_FAILED) {
-        perror("app | mmap");
-        exit(EXIT_FAILURE);
+    if (ftruncate(fd_shm, length) == ERROR_CODE)
+    {
+        return ERROR_CODE;
+    }
+
+    void *addr_parent = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd_shm, 0);
+    if (addr_parent == MAP_FAILED)
+    {
+        return ERROR_CODE;
     }
 
     return fd_shm;
+
+}
+
+void close_pipes(int (*pipes)[2], int slaves){
+    for (int i=0; i < slaves; i++){
+        close_pipe(pipes[i]);
+    }
+}
+
+void close_pipe(int pipe[2]){
+    close(pipe[READ_END]);
+    close(pipe[WRITE_END]);
 }
