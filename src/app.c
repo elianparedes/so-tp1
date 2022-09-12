@@ -34,7 +34,7 @@ int main(int argc, char const *argv[]) {
     shm_unlink(SHM_NAME);
     sem_unlink(SEM_NAME);
 
-    sem_t *s1 = sem_open(SEM_NAME, O_CREAT, 0660, 1);
+    sem_t *s1 = sem_open(SEM_NAME, O_CREAT, 0660, 0);
     if (s1 == SEM_FAILED) {
         perror("app | sem_open");
         exit(EXIT_FAILURE);
@@ -94,7 +94,6 @@ int main(int argc, char const *argv[]) {
     }
 
     while (files_in_shm < entries) {
-
         for (int i = 0; i < slaves; i++) {
             FD_SET(slave_to_master_stdout[i][READ_END], &read_set_fds);
         }

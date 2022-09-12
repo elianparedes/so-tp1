@@ -48,8 +48,10 @@ int main(int argc, char const *argv[]) {
 
     while (1) {
         sem_wait(s1);
-        printf("%s", shm_buffer);
-        shm_buffer += strlen(shm_buffer);
+
+        int shm_buffer_size = strlen(shm_buffer);
+        write(STDOUT_FILENO, shm_buffer, shm_buffer_size);
+        shm_buffer += shm_buffer_size;
     }
 
     sem_close(s1);
