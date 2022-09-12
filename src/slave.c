@@ -19,12 +19,12 @@ int main(void) {
 
     FILE *md5_fd;
     size_t line_buffer = BUFFER_SIZE;
-    char input_buffer[BUFFER_SIZE];
 
+    char input_buffer[BUFFER_SIZE];
     int nbytes;
 
     while (1) {
-        if ((nbytes = read(STDIN_FILENO, input_buffer, BUFFER_SIZE)) ==
+        if ((nbytes = read(STDIN_FILENO, input_buffer, BUFFER_SIZE - 1)) ==
             ERROR_CODE) {
             perror("slave | read");
             if (output_buffer != NULL) {

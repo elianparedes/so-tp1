@@ -59,7 +59,7 @@ int main(int argc, char const *argv[]) {
     for (int i = 0; i < slaves; i++) {
         strncpy(initial_load, argv[files_in_hash++], BUFFER - 1);
 
-        for (size_t j = 2; j <= LOAD_FACTOR && files_in_hash < argc; j++) {
+        for (size_t j = 1; j < LOAD_FACTOR && files_in_hash < argc; j++) {
             strcat(initial_load, " ");
             strncat(initial_load, argv[files_in_hash++], BUFFER - 1);
         }
