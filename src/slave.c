@@ -21,7 +21,7 @@ int main(void) {
     size_t line_buffer = BUFFER_SIZE;
 
     char input_buffer[BUFFER_SIZE];
-    int nbytes;
+    ssize_t nbytes;
 
     while (1) {
         if ((nbytes = read(STDIN_FILENO, input_buffer, BUFFER_SIZE - 1)) ==
