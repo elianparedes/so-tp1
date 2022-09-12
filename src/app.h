@@ -18,4 +18,10 @@
 
 #define ERROR_CODE -1
 
+#define MD5_CMD "md5sum"
+
 int open_shm(char *name, off_t length);
+
+void close_pipe(int pipe[2]);
+
+void close_pipes(int (*pipes)[2], int slaves);
