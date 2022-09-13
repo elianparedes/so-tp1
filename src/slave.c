@@ -20,20 +20,16 @@ static char *output_buffer = NULL;
  */
 int main(void) {
 
-    if (setvbuf(stdout, NULL, _IONBF, 0) != 0 || setvbuf(stderr, NULL, _IONBF, 0) != 0){
-        perror("slave | setvbuf");
-    }
-
-    char command[BUFFER + CMD_SIZE];
+    char command[BUFFER_SIZE + CMD_SIZE];
 
     FILE *md5_fd;
-    size_t line_buffer = BUFFER;
+    size_t line_buffer = BUFFER_SIZE;
 
-    char input_buffer[BUFFER];
+    char input_buffer[BUFFER_SIZE];
     ssize_t nbytes;
 
     while (1) {
-        if ((nbytes = read(STDIN_FILENO, input_buffer, BUFFER - 1)) ==
+        if ((nbytes = read(STDIN_FILENO, input_buffer, BUFFER_SIZE - 1)) ==
             ERROR_CODE) {
             perror("slave | read");
             if (output_buffer != NULL) {
@@ -58,6 +54,11 @@ int main(void) {
 
         while (getline(&output_buffer, &line_buffer, md5_fd) != EOF) {
             printf("process pid: %d | %s", getpid(), output_buffer);
+        }
+
+        if (fflush(stdout) == EOF) {
+            perror("slave | fflush");
+            exit_slave(EXIT_FAILURE);
         }
 
         if (pclose(md5_fd) == ERROR_CODE) {
