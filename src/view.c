@@ -18,15 +18,25 @@
 
 int main(int argc, char const *argv[]) {
 
+    char shm_info[BUFFER_SIZE] = {0};
     char shm_name[BUFFER_SIZE];
-    int shm_size;
+    int shm_size = 0;
 
-    if (fscanf(stdin, "%s %d", shm_name, &shm_size) == EOF) {
+    if (fgets(shm_info, BUFFER_SIZE, stdin) == NULL) {
+        printf("view | fgets: Invalid shared memory info\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (sscanf(shm_info, "%s %d\n", shm_name, &shm_size) == EOF) {
         perror("view | fscanf");
         exit(EXIT_FAILURE);
     }
 
-    sem_t *sem = sem_open(SEM_NAME, O_CREAT, 0660, 0);
+    if (shm_size <= 0) {
+        exit(EXIT_FAILURE);
+    }
+
+    sem_t *sem = sem_open(SEM_NAME, O_RDONLY, 0);
     if (sem == SEM_FAILED) {
         perror("view | sem_open");
         exit(EXIT_FAILURE);
@@ -44,10 +54,7 @@ int main(int argc, char const *argv[]) {
 
     while (1) {
         sem_wait(sem);
-
-        int shm_buffer_size = strlen(shm_buffer);
-        write(STDOUT_FILENO, shm_buffer, shm_buffer_size);
-        shm_buffer += shm_buffer_size;
+        shm_buffer += printf("%s", shm_buffer);
     }
 
     sem_close(sem);
