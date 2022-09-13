@@ -12,10 +12,11 @@
 static char *output_buffer = NULL;
 
 /**
- * @brief programa que espera por entrada estándar paths de archivos para hashear y luego imprime por salida estándar el pid del proceso
- * junto al hash y el nombre del archivo.
- * El programa espera archivos hasta que es interrumpido o hasta que hubo un error.
- * 
+ * @brief programa que espera por entrada estándar paths de archivos para
+ * hashear y luego imprime por salida estándar el pid del proceso junto al hash
+ * y el nombre del archivo. El programa espera archivos hasta que es
+ * interrumpido o hasta que hubo un error.
+ *
  * @return int EXIT_SUCCESS si no hubo errores. EXIT_FAILURE en caso contrario
  */
 int main(void) {

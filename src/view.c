@@ -2,7 +2,7 @@
 // PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 #define _DEFAULT_SOURCE
 
-#include <fcntl.h> /* For O_* constants */
+#include <fcntl.h>
 #include <semaphore.h>
 #include <signal.h>
 #include <stdio.h>
@@ -10,7 +10,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/select.h>
-#include <sys/stat.h> /* For mode constants */
+#include <sys/stat.h>
 #include <unistd.h>
 
 #define BUFFER_SIZE 512
@@ -18,16 +18,12 @@
 
 int main(int argc, char const *argv[]) {
 
-    char shm_info[BUFFER_SIZE] = {0};
     char shm_name[BUFFER_SIZE];
-    int shm_size = 0;
+    int shm_size;
 
-    if (fgets(shm_info, BUFFER_SIZE, stdin) == NULL) {
-        printf("view | fgets: Invalid shared memory info\n");
-        exit(EXIT_FAILURE);
-    }
-
-    if (sscanf(shm_info, "%s %d\n", shm_name, &shm_size) == EOF) {
+    // Indicamos el tamaño del string a leer para corregir el warning de
+    // PVS-STUDIO debido a las limitaciones de fscanf.
+    if (fscanf(stdin, "%511s %d", shm_name, &shm_size) == EOF) {
         perror("view | fscanf");
         exit(EXIT_FAILURE);
     }
@@ -55,6 +51,7 @@ int main(int argc, char const *argv[]) {
     while (1) {
         sem_wait(sem);
         shm_buffer += printf("%s", shm_buffer);
+        fflush(stdout);
     }
 
     sem_close(sem);

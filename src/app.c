@@ -2,14 +2,13 @@
 // PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 #include "app.h"
 
-#include <fcntl.h> /* For O_* constants */
+#include <fcntl.h>
 #include <math.h>
 #include <semaphore.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/select.h>
-#include <sys/stat.h> /* For mode constants */
+#include <sys/stat.h>
 #include <unistd.h>
 
 /**
@@ -58,25 +57,17 @@ int main(int argc, char const *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    for (int i = 0; i < slaves; i++) {
-        if (pipe(master_to_slave[i]) == ERROR_CODE ||
-            pipe(slave_to_master_stdout[i]) == ERROR_CODE ||
-            pipe(slave_to_master_stderr[i]) == ERROR_CODE) {
-            perror("app | pipe");
-            exit(EXIT_FAILURE);
-        }
+    if (create_pipes(master_to_slave, slave_to_master_stdout,
+                     slave_to_master_stderr, slaves) == ERROR_CODE) {
+        perror("app | pipe");
+        exit(EXIT_FAILURE);
     }
 
     int fd_shm = open_shm(SHM_NAME, SHM_SIZE);
     if (fd_shm == ERROR_CODE) {
         perror("app | open_shm ");
-        exit(EXIT_FAILURE);
-    }
-
-    void *addr_shm =
-        mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd_shm, 0);
-    if (addr_shm == MAP_FAILED) {
-        return ERROR_CODE;
+        HANDLE_EXIT(master_to_slave, slave_to_master_stdout,
+                    slave_to_master_stderr, slaves, EXIT_FAILURE);
     }
 
     // Se esperan dos segundos para tener la oportunidad de conectar el programa
@@ -87,7 +78,8 @@ int main(int argc, char const *argv[]) {
 
     if (fflush(stdout) == EOF) {
         perror("app | fflush");
-        exit(EXIT_FAILURE);
+        HANDLE_EXIT(master_to_slave, slave_to_master_stdout,
+                    slave_to_master_stderr, slaves, EXIT_FAILURE);
     }
 
     // Se crean los procesos hijos y se le transmite por los pipes la cantidad
@@ -96,9 +88,11 @@ int main(int argc, char const *argv[]) {
     char initial_load[BUFFER * slaves + slaves];
 
     for (int i = 0; i < slaves; i++) {
+        // Se copian los argumentos al pipe de escritura para que lo reciba el
+        // proceso hijo
         strncpy(initial_load, argv[files_in_hash++], BUFFER - 1);
 
-        for (size_t j = 1; j < LOAD_FACTOR && files_in_hash < argc; j++) {
+        if (files_in_hash < argc) {
             strcat(initial_load, " ");
             strncat(initial_load, argv[files_in_hash++], BUFFER - 1);
         }
@@ -108,30 +102,12 @@ int main(int argc, char const *argv[]) {
 
         int ret;
         if ((ret = fork()) == 0) {
-            close(STDIN_FILENO);
-            dup2(master_to_slave[i][READ_END], STDIN_FILENO);
-
-            close(STDOUT_FILENO);
-            dup2(slave_to_master_stdout[i][WRITE_END], STDOUT_FILENO);
-
-            close(STDERR_FILENO);
-            dup2(slave_to_master_stderr[i][WRITE_END], STDERR_FILENO);
-
-            close(master_to_slave[i][WRITE_END]);
-            close(slave_to_master_stdout[i][READ_END]);
-            close(slave_to_master_stderr[i][READ_END]);
-
-            if (execl(SLAVE_NAME, SLAVE_NAME, (char *)NULL) == ERROR_CODE) {
-                close_pipes(master_to_slave, slaves);
-                close_pipes(slave_to_master_stdout, slaves);
-                close_pipes(slave_to_master_stderr, slaves);
-                exit(EXIT_FAILURE);
-            }
+            execute(master_to_slave, slave_to_master_stdout,
+                    slave_to_master_stderr, i, slaves);
         } else if (ret == ERROR_CODE) {
-            close_pipes(master_to_slave, slaves);
-            close_pipes(slave_to_master_stdout, slaves);
-            close_pipes(slave_to_master_stderr, slaves);
-            exit(EXIT_FAILURE);
+            perror("app | execl");
+            HANDLE_EXIT(master_to_slave, slave_to_master_stdout,
+                        slave_to_master_stderr, slaves, EXIT_FAILURE);
         }
     }
 
@@ -194,61 +170,41 @@ int main(int argc, char const *argv[]) {
                         }
                     }
                 } else {
-                    close_pipe(slave_to_master_stderr[i]);
-                    close_pipe(slave_to_master_stdout[i]);
-                    FD_CLR(slave_to_master_stdout[i][READ_END], &read_set_fds);
-                    FD_CLR(slave_to_master_stderr[i][READ_END], &read_set_fds);
-                    slave_to_master_stdout[i][READ_END] = ERROR_CODE;
-                    slave_to_master_stderr[i][READ_END] = ERROR_CODE;
+                    perror("app | read");
+                    HANDLE_EXIT(master_to_slave, slave_to_master_stdout,
+                                slave_to_master_stderr, slaves, EXIT_SUCCESS);
                 }
             }
 
-            // Recepción de errores de los procesos. Si el error no está
-            // relacionado con el programa md5sum, se abortará el proceso y se
-            // cerrarán sus pipes, para no enviarle más archivos.
+            // Recepción de errores de los procesos. Si se recibe un error, el
+            // programa imprimirá por salida estandar y abortará
             if (FD_ISSET(slave_to_master_stderr[i][READ_END], &read_set_fds)) {
-                files_in_shm++;
 
                 char error[BUFFER];
                 ssize_t nbytes = read(slave_to_master_stderr[i][READ_END],
                                       error, BUFFER - 1);
                 if (nbytes == ERROR_CODE) {
-                    perror("app | read stderr");
-                    close_pipe(slave_to_master_stderr[i]);
-                    close_pipe(slave_to_master_stdout[i]);
-                    FD_CLR(slave_to_master_stdout[i][READ_END], &read_set_fds);
-                    FD_CLR(slave_to_master_stderr[i][READ_END], &read_set_fds);
-                    slave_to_master_stdout[i][READ_END] = ERROR_CODE;
-                    slave_to_master_stderr[i][READ_END] = ERROR_CODE;
+                    perror("app | read");
+                    HANDLE_EXIT(master_to_slave, slave_to_master_stdout,
+                                slave_to_master_stderr, slaves, EXIT_SUCCESS);
                 } else {
                     error[nbytes] = '\0';
                     fprintf(stderr, "%s", error);
 
-                    if (strstr(error, MD5_CMD) == NULL) {
-                        close_pipe(slave_to_master_stderr[i]);
-                        close_pipe(slave_to_master_stdout[i]);
-                        FD_CLR(slave_to_master_stdout[i][READ_END],
-                               &read_set_fds);
-                        FD_CLR(slave_to_master_stderr[i][READ_END],
-                               &read_set_fds);
-                        slave_to_master_stdout[i][READ_END] = ERROR_CODE;
-                        slave_to_master_stderr[i][READ_END] = ERROR_CODE;
-                    }
+                    HANDLE_EXIT(master_to_slave, slave_to_master_stdout,
+                                slave_to_master_stderr, slaves, EXIT_SUCCESS);
                 }
             }
         }
     }
 
+    sem_close(sem);
+
     // Se cierran todos los pipes utilizados. Al cerrar los pipes, los procesos
     // recibirán un error en el read y liberarán sus recursos. No hay necesidad
     // de hacer wait
-    close_pipes(master_to_slave, slaves);
-    close_pipes(slave_to_master_stdout, slaves);
-    close_pipes(slave_to_master_stderr, slaves);
-
-    sem_close(sem);
-
-    return EXIT_SUCCESS;
+    HANDLE_EXIT(master_to_slave, slave_to_master_stdout, slave_to_master_stderr,
+                slaves, EXIT_SUCCESS);
 }
 
 int open_shm(char *name, off_t length) {
@@ -262,7 +218,30 @@ int open_shm(char *name, off_t length) {
         return ERROR_CODE;
     }
 
+    void *addr_shm =
+        mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd_shm, 0);
+    if (addr_shm == MAP_FAILED) {
+        return ERROR_CODE;
+    }
+
     return fd_shm;
+}
+
+int create_pipes(int (*master_to_slave)[2], int (*slave_to_master_stdout)[2],
+                 int (*slave_to_master_stderr)[2], size_t count) {
+    for (int i = 0; i < count; i++) {
+        if (pipe(master_to_slave[i]) == ERROR_CODE ||
+            pipe(slave_to_master_stdout[i]) == ERROR_CODE ||
+            pipe(slave_to_master_stderr[i]) == ERROR_CODE) {
+            return ERROR_CODE;
+        }
+    }
+    return EXIT_SUCCESS;
+}
+
+void close_pipe(int pipe[2]) {
+    close(pipe[READ_END]);
+    close(pipe[WRITE_END]);
 }
 
 void close_pipes(int (*pipes)[2], int slaves) {
@@ -271,7 +250,24 @@ void close_pipes(int (*pipes)[2], int slaves) {
     }
 }
 
-void close_pipe(int pipe[2]) {
-    close(pipe[READ_END]);
-    close(pipe[WRITE_END]);
+void execute(int (*master_to_slave)[2], int (*slave_to_master_stdout)[2],
+             int (*slave_to_master_stderr)[2], size_t index, size_t count) {
+    close(STDIN_FILENO);
+    dup2(master_to_slave[index][READ_END], STDIN_FILENO);
+
+    close(STDOUT_FILENO);
+    dup2(slave_to_master_stdout[index][WRITE_END], STDOUT_FILENO);
+
+    close(STDERR_FILENO);
+    dup2(slave_to_master_stderr[index][WRITE_END], STDERR_FILENO);
+
+    close(master_to_slave[index][WRITE_END]);
+    close(slave_to_master_stdout[index][READ_END]);
+    close(slave_to_master_stderr[index][READ_END]);
+
+    if (execl(SLAVE_NAME, SLAVE_NAME, (char *)NULL) == ERROR_CODE) {
+        perror("app | execl");
+        HANDLE_EXIT(master_to_slave, slave_to_master_stdout,
+                    slave_to_master_stderr, count, EXIT_FAILURE);
+    }
 }
