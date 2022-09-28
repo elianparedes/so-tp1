@@ -14,6 +14,7 @@
 
 // Nombre y tamaño de la memoria compartida
 #define SHM_NAME   "/buffer"
+#define FIFO_NAME "/fifofile2"
 #define SHM_SIZE   (2048 * 5)
 
 #define SEM_NAME   "/sem"

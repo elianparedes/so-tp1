@@ -15,6 +15,7 @@
 
 #define BUFFER_SIZE 512
 #define SEM_NAME    "/sem"
+#define FIFO_NAME   "/fifofile2"
 
 int main(int argc, char const *argv[]) {
 
@@ -27,6 +28,8 @@ int main(int argc, char const *argv[]) {
         perror("view | fscanf");
         exit(EXIT_FAILURE);
     }
+
+    int fifo_fd = open(FIFO_NAME, O_RDONLY); 
 
     if (shm_size <= 0) {
         exit(EXIT_FAILURE);
@@ -48,13 +51,14 @@ int main(int argc, char const *argv[]) {
     if (shm_buffer == MAP_FAILED)
         perror("view | mmap");
 
+    char buff[BUFFER_SIZE];
+
     while (1) {
         sem_wait(sem);
-        shm_buffer += printf("%s", shm_buffer);
+        int rbytes = read(fifo_fd, buff, BUFFER_SIZE);
+        printf("%s\n", buff);
         fflush(stdout);
     }
-
-    sem_close(sem);
 
     return 0;
 }

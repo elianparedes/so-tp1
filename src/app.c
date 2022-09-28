@@ -43,6 +43,12 @@ int main(int argc, char const *argv[]) {
     int slave_to_master_stdout[slaves][2];
     int slave_to_master_stderr[slaves][2];
 
+    if (mkfifo(FIFO_NAME, 0666) != 0) {
+        perror("app | mkfifo");
+        exit(EXIT_FAILURE);
+    }
+    int fifo_file = open(FIFO_NAME, O_WRONLY);
+
     int files_in_hash = 1;
     int files_in_shm = 0;
 
@@ -154,8 +160,9 @@ int main(int argc, char const *argv[]) {
 
                 if ((nbytes = read(slave_to_master_stdout[i][READ_END], hash,
                                    BUFFER)) != ERROR_CODE) {
-                    write(fd_shm, hash, nbytes);
+                    /*write(fd_shm, hash, nbytes);*/
                     files_in_shm++;
+                    write(fifo_file, hash, nbytes);
                     sem_post(sem);
 
                     if (files_in_hash < argc) {
